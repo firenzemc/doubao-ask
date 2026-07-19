@@ -7,6 +7,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PORT=8080
 
+# The vinyard server sits behind a slow international link: pull apt packages
+# from TUNA (China mirror) instead of deb.debian.org. Harmless elsewhere.
+RUN sed -i -e 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' \
+           -e 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' \
+           /etc/apt/sources.list.d/debian.sources
+
 # Chromium + Xvfb (headed browser required by the opencli Browser Bridge
 # extension), CJK fonts for Chinese pages, python for the API wrapper.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,7 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # opencli CLI + Browser Bridge extension (pinned to the CLI's matching release).
 ARG OPENCLI_VERSION=1.8.6
 ARG EXTENSION_VERSION=1.0.22
-RUN npm install -g "@jackwener/opencli@${OPENCLI_VERSION}" \
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install -g "@jackwener/opencli@${OPENCLI_VERSION}" \
     && curl -fsSL -o /tmp/ext.zip \
        "https://github.com/jackwener/OpenCLI/releases/download/v${OPENCLI_VERSION}/opencli-extension-v${EXTENSION_VERSION}.zip" \
     && mkdir -p /opt/opencli-extension \
@@ -36,7 +43,7 @@ WORKDIR /app
 COPY requirements.txt .
 # Debian python is externally managed; a venv keeps pip installs clean.
 RUN python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install -r requirements.txt
+    && /opt/venv/bin/pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 ENV PATH="/opt/venv/bin:${PATH}"
 
 COPY app.py entrypoint.sh ./

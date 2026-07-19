@@ -1,0 +1,15 @@
+name = "doubao-ask"
+port = 8080
+health = "/health"
+health_retries = 90          # chromium + xvfb need a slow-start allowance
+route = "port"
+public_port = 42180
+pinned = true
+memory = "2g"
+cpus = 2
+
+# Doubao login lives in the Chromium profile; the volume keeps it across
+# redeploys and host migrations.
+[[volumes]]
+name = "doubao-chrome-profile"
+mount = "/data/chrome-profile"

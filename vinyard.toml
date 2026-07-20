@@ -7,6 +7,9 @@ public_port = 42180
 pinned = true
 memory = "3g"                # chromium under load
 cpus = 2
+# Egress direct, not via mihomo: Doubao risk-control flags datacenter/proxy
+# exit IPs — a first-party domestic IP gets far fewer captcha challenges.
+proxy = false
 
 # --- service registration (authoritative here in the repo; do not rely on
 # the local pointer — a fresh /api/deploy rewrites it) ---

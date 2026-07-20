@@ -6,8 +6,10 @@ import { DOUBAO_DOMAIN, getDoubaoTranscriptLines, getDoubaoVisibleTurns, sendDou
 // window.open and click each marker to harvest the links.
 // NOTE: 'container-DEV3jt' is a hashed CSS class from Doubao's frontend —
 // if citation extraction suddenly returns empty, re-inspect the marker class.
-const extractCitationsScript = `(async () => {
-  const spans = [...document.querySelectorAll('span.container-DEV3jt')];
+// The script takes the number of citation spans present BEFORE the ask, so
+// only the new answer's citations are collected (conversation is reused).
+const extractCitationsScript = (beforeCount) => `(async () => {
+  const spans = [...document.querySelectorAll('span.container-DEV3jt')].slice(${beforeCount});
   const opened = [];
   window.open = (u) => { opened.push(u); return null; };
   const results = [];
@@ -31,11 +33,12 @@ const extractCitationsScript = `(async () => {
   const seen = new Set();
   return results.filter((c) => c.url && !seen.has(c.url) && seen.add(c.url));
 })()`;
+const countCitationsScript = `document.querySelectorAll('span.container-DEV3jt').length`;
 export const askCitedCommand = cli({
     site: 'doubao',
     name: 'ask-cited',
     access: 'write',
-    description: 'Ask in a new Doubao conversation, return the answer plus citation links',
+    description: 'Ask Doubao in the current conversation, return the answer plus citation links',
     domain: DOUBAO_DOMAIN,
     strategy: Strategy.COOKIE,
     browser: true,
@@ -44,6 +47,7 @@ export const askCitedCommand = cli({
     args: [
         { name: 'text', required: true, positional: true, help: 'Prompt to send' },
         { name: 'timeout', type: 'int', required: false, help: 'Max seconds to wait (default: 90)', default: 90 },
+        { name: 'new', type: 'bool', required: false, default: false, help: 'Start a new conversation first (RISK: new-chat creation triggers captcha challenges far more often)' },
     ],
     columns: ['Answer', 'Citations'],
     func: async (page, kwargs) => {
@@ -52,15 +56,20 @@ export const askCitedCommand = cli({
         if (!Number.isInteger(timeout) || timeout < 1) {
             throw new ArgumentError('--timeout must be a positive integer (seconds)');
         }
-        await startNewDoubaoChat(page);
+        // Anti-bot: reuse the current conversation by default. Creating a new
+        // chat measurably increases captcha challenges, so --new is opt-in.
+        if (kwargs.new) {
+            await startNewDoubaoChat(page);
+        }
         const beforeTurns = await getDoubaoVisibleTurns(page);
         const beforeLines = await getDoubaoTranscriptLines(page);
+        const beforeCitations = await page.evaluate(countCitationsScript).catch(() => 0) || 0;
         await sendDoubaoMessage(page, text);
         const response = await waitForDoubaoResponse(page, beforeLines, beforeTurns, text, timeout);
         if (!response) {
             return [{ Answer: '', Citations: JSON.stringify({ error: `No response within ${timeout}s. Doubao may still be generating.` }) }];
         }
-        const citations = await page.evaluate(extractCitationsScript).catch(() => []);
+        const citations = await page.evaluate(extractCitationsScript(beforeCitations)).catch(() => []);
         return [{ Answer: response, Citations: JSON.stringify(citations || []) }];
     },
 });

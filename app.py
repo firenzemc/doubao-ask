@@ -192,6 +192,8 @@ SETUP_CLI_ALLOW = {
     ("browser", "setup", "type"), ("browser", "setup", "scroll"),
     ("browser", "setup", "wait"), ("browser", "setup", "state"),
     ("browser", "setup", "screenshot"), ("browser", "setup", "tab"),
+    ("browser", "site:doubao", "screenshot"),
+    ("doubao", "drag"), ("doubao", "click-at"),
 }
 
 

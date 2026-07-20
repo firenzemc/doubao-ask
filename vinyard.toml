@@ -5,8 +5,22 @@ health_retries = 90          # chromium + xvfb need a slow-start allowance
 route = "port"
 public_port = 42180
 pinned = true
-memory = "2g"
+memory = "3g"                # chromium under load
 cpus = 2
+
+# --- service registration (authoritative here in the repo; do not rely on
+# the local pointer — a fresh /api/deploy rewrites it) ---
+class = "service"
+capability = "豆包问答 API：提问返回回答全文+引用链接（opencli 驱动真实浏览器）"
+usage = "https://github.com/firenzemc/doubao-ask#readme"
+
+[[faces]]
+kind = "api"
+path = "/"
+
+[[faces]]
+kind = "mcp"
+path = "/mcp"
 
 # Doubao login lives in the Chromium profile; the volume keeps it across
 # redeploys and host migrations.

@@ -1,25 +1,47 @@
-"""doubao-ask — HTTP wrapper around `opencli doubao ask-cited`.
+"""doubao-ask — HTTP/MCP wrapper around `opencli doubao ask-cited`.
 
-Exposes Doubao Q&A (answer text + citation links) as a small JSON API.
-All requests are serialized: the underlying browser session is single-threaded.
+Exposes Doubao Q&A (answer text + citation links) as a JSON API and as an
+MCP (streamable HTTP) tool. All asks are serialized AND rate-limited: the
+underlying browser session is single-threaded, and hammering Doubao triggers
+its anti-bot defenses.
 """
 import asyncio
 import base64
+import contextlib
 import json
+import os
 import re
 import shutil
 import time
 
 from fastapi import FastAPI, HTTPException, Response
+from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
-
-app = FastAPI(title="doubao-ask", version="0.1.0")
 
 OPENCLI = shutil.which("opencli") or "opencli"
 SUBPROCESS_MARGIN_S = 90  # slack beyond the doubao wait timeout for CLI/browser overhead
 LOCK_WAIT_S = 300  # how long a request may queue behind another before 429
+RATE_MIN_INTERVAL_S = float(os.environ.get("RATE_MIN_INTERVAL_S", "30"))
 
 _lock = asyncio.Lock()
+_last_ask_started = 0.0
+
+
+# --- MCP surface (mounted below) -------------------------------------------
+# Mounted at "/" with streamable_http_path="/mcp" so the endpoint answers at
+# exactly /mcp (a sub-path mount would 307-redirect /mcp → /mcp/ and some
+# MCP clients drop POST bodies on redirects).
+mcp = FastMCP("doubao-ask", streamable_http_path="/mcp", stateless_http=True)
+mcp_app = mcp.streamable_http_app()
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app):
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="doubao-ask", version="0.2.0", lifespan=lifespan)
 
 
 class AskRequest(BaseModel):
@@ -53,18 +75,28 @@ async def run_opencli(*args: str, timeout: float) -> tuple[int, str, str]:
     return proc.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 
-@app.post("/ask", response_model=AskResponse)
-async def ask(req: AskRequest):
+async def ask_locked(question: str, timeout: int) -> dict:
+    """Serialized + rate-limited ask. Returns {answer, citations, elapsed_ms}."""
+    global _last_ask_started
     started = time.monotonic()
     try:
         await asyncio.wait_for(_lock.acquire(), timeout=LOCK_WAIT_S)
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=429, detail="service busy, retry later")
+        raise HTTPException(
+            status_code=429,
+            detail="service busy, retry later",
+            headers={"Retry-After": "60"},
+        )
     try:
+        # Anti-bot throttle: never start two asks closer than RATE_MIN_INTERVAL_S.
+        wait = RATE_MIN_INTERVAL_S - (time.monotonic() - _last_ask_started)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_ask_started = time.monotonic()
         rc, out, err = await run_opencli(
-            "doubao", "ask-cited", req.question,
-            "--timeout", str(req.timeout), "-f", "json",
-            timeout=req.timeout + SUBPROCESS_MARGIN_S,
+            "doubao", "ask-cited", question,
+            "--timeout", str(timeout), "-f", "json",
+            timeout=timeout + SUBPROCESS_MARGIN_S,
         )
     finally:
         _lock.release()
@@ -87,11 +119,24 @@ async def ask(req: AskRequest):
         raise HTTPException(status_code=504, detail=citations["error"])
     if not answer:
         raise HTTPException(status_code=504, detail="empty answer from doubao")
-    return AskResponse(
-        answer=answer,
-        citations=citations,
-        elapsed_ms=int((time.monotonic() - started) * 1000),
-    )
+    return {
+        "answer": answer,
+        "citations": citations,
+        "elapsed_ms": int((time.monotonic() - started) * 1000),
+    }
+
+
+@mcp.tool()
+async def doubao_ask(question: str, timeout: int = 120) -> dict:
+    """向豆包提问，返回回答全文与引用链接（联网搜索时）。
+    Ask Doubao (doubao.com) a question; returns the full answer text plus
+    citation links when the answer used web search."""
+    return await ask_locked(question, timeout)
+
+
+@app.post("/ask", response_model=AskResponse)
+async def ask(req: AskRequest):
+    return AskResponse(**(await ask_locked(req.question, req.timeout)))
 
 
 @app.get("/health")
@@ -139,3 +184,8 @@ async def status():
         "user": user.group(1).strip().strip("'\"") if user else None,
         "stderr": err[-300:] if rc != 0 else "",
     }
+
+
+# MCP streamable-HTTP endpoint at /mcp (mounted last so the explicit routes
+# above always win).
+app.mount("/", mcp_app)

@@ -1,18 +1,35 @@
 # doubao-ask
 
-豆包问答自动化 HTTP 服务：基于 [opencli](https://github.com/jackwener/opencli) 驱动真实浏览器里的豆包网页版，返回**回答全文 + 引用链接**。
+豆包问答自动化服务：基于 [opencli](https://github.com/jackwener/opencli) 驱动真实浏览器里的豆包网页版，返回**回答全文 + 引用链接**。同时暴露 HTTP API 与 MCP（streamable HTTP）两种接口。
 
-## API
+## 接口
 
-| Endpoint | 说明 |
+| 接口 | 说明 |
 | --- | --- |
 | `POST /ask` | 提问。Body: `{"question": "...", "timeout": 120}` → `{"answer": "...", "citations": [{"name","url"}], "elapsed_ms": n}` |
+| `POST /mcp` | MCP streamable HTTP 端点，工具 `doubao_ask(question, timeout?)` |
 | `GET /health` | 存活探针（vinyard 健康门用，秒回） |
 | `GET /status` | 诊断：opencli 桥接状态 + 豆包登录态（`logged_in`） |
-| `GET /setup/screenshot` | 容器内浏览器截图（PNG），用于扫码登录 |
+| `GET /setup/screenshot` | 容器内浏览器截图（PNG），用于扫码登录/排障 |
 | `POST /setup/eval` | 在容器浏览器页面执行 JS（`{"js": "..."}`，设置/兜底用） |
 
-所有请求串行执行（单浏览器会话）；排队超过 300s 返回 429。
+MCP 客户端配置示例：
+
+```json
+{ "mcpServers": { "doubao": { "type": "http", "url": "http://100.109.44.79:42180/mcp" } } }
+```
+
+## 速率限制（防反爬）
+
+豆包有反爬验证（滑块/captcha），触发后所有提问被拒。**本服务强制节流**：
+
+- 所有请求串行执行（单浏览器会话），排队超 300s 返回 429（带 `Retry-After`）。
+- 两次提问的最小间隔默认 **30s**（`RATE_MIN_INTERVAL_S` 环境变量可调，改大更安全）。
+- 适配器内引用点击也已减速（900ms/次），避免合成点击突发。
+- 调用方请自行再加一层节奏控制（批量任务建议 ≥1 问/分钟）。
+
+若返回 `Doubao blocked the request with a verification challenge`：说明触发验证。
+等 10–30 分钟冷却再试；持续不解则用 `/setup/screenshot` 看页面、用 `/setup/eval` 手动过验证。
 
 ## 工作原理
 
@@ -34,13 +51,13 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ## 部署（vinyard）
 
 仓库满足 vinyard 部署契约：根 `Dockerfile`（multi-arch）、监听 `$PORT`、`/health`、
-无 baked secrets。`vinyard.toml` 声明 port 路由（`public_port=42180`）、
+无 baked secrets。`vinyard.toml` 声明 `class="service"`（注册进 `/api/services`、删除保护）、
+port 路由（`public_port=42180`）、api+mcp 两个 faces、
 named volume `doubao-chrome-profile` 持久化登录态、`pinned=true`。
 
 ```bash
-curl -X POST http://100.109.44.79/api/deploy \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"doubao-ask","source":{"repo":"<this repo url>","ref":"main"}}'
+# 常规迭代：改代码 → push → redeploy（登录态在 volume 里，不受影响）
+curl -X POST http://100.109.44.79/api/projects/doubao-ask/redeploy
 ```
 
 ## 首次登录 / 重新登录 runbook
@@ -53,9 +70,14 @@ curl -X POST http://100.109.44.79/api/deploy \
      -H 'Content-Type: application/json' \
      -d '{"js":"location.href=\"https://www.doubao.com/chat\""}'
    ```
-2. 取截图看二维码：`open http://100.109.44.79:42180/setup/screenshot`
-   （或 curl 存成 png 打开）。页面上出现登录二维码。
-3. 用手机豆包 App / 抖音扫码确认登录。
+   等 ~10s，然后点登录按钮：
+   ```bash
+   curl -X POST http://100.109.44.79:42180/setup/eval \
+     -H 'Content-Type: application/json' \
+     -d '{"js":"[...document.querySelectorAll(\"button, [role=button], div, span\")].find(e=>e.textContent.trim()===\"登录\"&&e.offsetParent)?.click(); \"ok\""}'
+   ```
+2. 取截图看二维码：`open http://100.109.44.79:42180/setup/screenshot`。
+3. 用手机豆包 App / 飞书扫码确认登录。
 4. 等 ~10s 后复查：`curl http://100.109.44.79:42180/status` → `logged_in: true`。
 5. 登录态写入 named volume，容器重启/重建都保留；无需重新扫码除非 session 过期。
 
@@ -63,7 +85,7 @@ curl -X POST http://100.109.44.79/api/deploy \
 
 ## 运维备忘
 
-- 单实例串行：并发请求会排队；批量调用方请自行控制节奏。
 - 超时：`timeout` 是豆包生成等待上限（默认 120s），长回答调大；API 侧另有 90s 进程余量。
 - 无引用属正常：豆包未联网搜索的回答没有引用标记，`citations` 为 `[]`。
 - 重建后首次 `/ask` 较慢（浏览器冷启动 + daemon 启动），属预期。
+- 容器日志（含 chromium/xvfb 输出）：`vin logs doubao-ask` 或 `GET /api/projects/doubao-ask/logs`。

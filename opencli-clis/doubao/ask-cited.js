@@ -18,7 +18,8 @@ const extractCitationsScript = `(async () => {
       s.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
     }
     s.click();
-    await new Promise((r) => setTimeout(r, 350));
+    // Pace the clicks: a burst of synthetic clicks looks bot-like to Doubao.
+    await new Promise((r) => setTimeout(r, 900));
     const url = opened.length > before ? opened[opened.length - 1] : '';
     if (url) results.push({ name, url });
   }

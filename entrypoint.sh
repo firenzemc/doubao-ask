@@ -1,5 +1,7 @@
 #!/bin/bash
 # doubao-ask container entrypoint: Xvfb + Chromium (Browser Bridge ext) + API wrapper.
+# Both Xvfb and Chromium run under restart loops; everything logs to stdout
+# so `vin logs doubao-ask` shows the full picture.
 set -u
 
 export DISPLAY=:99
@@ -9,10 +11,17 @@ PORT="${PORT:-8080}"
 
 mkdir -p "$PROFILE_DIR"
 
-Xvfb :99 -screen 0 1440x900x24 &
-XVFB_PID=$!
+(
+  while true; do
+    Xvfb :99 -screen 0 1440x900x24 2>&1 | sed 's/^/[xvfb] /'
+    echo "[entrypoint] Xvfb exited ($?), restarting in 3s" >&2
+    sleep 3
+  done
+) &
 
-# Chromium supervision loop: restart if it crashes/exits.
+# Wait for the X display before launching Chromium.
+sleep 2
+
 (
   while true; do
     chromium \
@@ -24,12 +33,13 @@ XVFB_PID=$!
       --no-default-browser-check \
       --disable-session-crashed-bubble \
       --hide-crash-restore-bubble \
+      --disable-crash-reporter \
       --user-data-dir="$PROFILE_DIR" \
       --load-extension="$EXT_DIR" \
       --disable-extensions-except="$EXT_DIR" \
       --window-size=1440,900 \
       --start-maximized \
-      https://www.doubao.com/chat >/var/log/chromium.log 2>&1
+      https://www.doubao.com/chat 2>&1 | sed 's/^/[chromium] /'
     echo "[entrypoint] chromium exited ($?), restarting in 5s" >&2
     sleep 5
   done

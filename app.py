@@ -179,6 +179,33 @@ async def setup_eval(req: EvalRequest):
     return {"exit": rc, "output": out[-2000:], "stderr": err[-300:] if rc != 0 else ""}
 
 
+class CliRequest(BaseModel):
+    args: list[str] = Field(min_length=1, max_length=8)
+
+
+# Whitelisted opencli invocations for container-side setup/maintenance
+# (e.g. trigger a captcha with `doubao send`, then `doubao solve-slider`).
+SETUP_CLI_ALLOW = {
+    ("doubao", "new"), ("doubao", "send"), ("doubao", "read"),
+    ("doubao", "status"), ("doubao", "whoami"), ("doubao", "solve-slider"),
+    ("browser", "setup", "open"), ("browser", "setup", "click"),
+    ("browser", "setup", "type"), ("browser", "setup", "scroll"),
+    ("browser", "setup", "wait"), ("browser", "setup", "state"),
+    ("browser", "setup", "screenshot"),
+}
+
+
+@app.post("/setup/cli")
+async def setup_cli(req: CliRequest):
+    """Run a whitelisted opencli command in the container (operator hatch)."""
+    allowed = any(tuple(req.args[: len(head)]) == head for head in SETUP_CLI_ALLOW)
+    if not allowed:
+        raise HTTPException(status_code=400, detail=f"command not whitelisted: {req.args[:3]}")
+    async with _lock:
+        rc, out, err = await run_opencli(*req.args, timeout=150)
+    return {"exit": rc, "stdout": out[-3000:], "stderr": err[-500:]}
+
+
 @app.get("/status")
 async def status():
     """Deeper diagnostic: is the opencli browser bridge up and doubao logged in?"""

@@ -38,7 +38,7 @@ export const askCitedCommand = cli({
     site: 'doubao',
     name: 'ask-cited',
     access: 'write',
-    description: 'Ask Doubao in the current conversation, return the answer plus citation links',
+    description: 'Ask Doubao in a new conversation, return the answer plus citation links',
     domain: DOUBAO_DOMAIN,
     strategy: Strategy.COOKIE,
     browser: true,
@@ -47,7 +47,7 @@ export const askCitedCommand = cli({
     args: [
         { name: 'text', required: true, positional: true, help: 'Prompt to send' },
         { name: 'timeout', type: 'int', required: false, help: 'Max seconds to wait (default: 90)', default: 90 },
-        { name: 'new', type: 'bool', required: false, default: false, help: 'Start a new conversation first (RISK: new-chat creation triggers captcha challenges far more often)' },
+        { name: 'reuse', type: 'bool', required: false, default: false, help: 'Reuse the current conversation instead of starting a new one. RESERVED for user-designated scenarios only.' },
     ],
     columns: ['Answer', 'Citations'],
     func: async (page, kwargs) => {
@@ -56,9 +56,10 @@ export const askCitedCommand = cli({
         if (!Number.isInteger(timeout) || timeout < 1) {
             throw new ArgumentError('--timeout must be a positive integer (seconds)');
         }
-        // Anti-bot: reuse the current conversation by default. Creating a new
-        // chat measurably increases captcha challenges, so --new is opt-in.
-        if (kwargs.new) {
+        // Stateless by design: every ask opens a NEW conversation (the business
+        // scenario requires it). Conversation reuse is reserved for future
+        // user-designated scenarios and stays opt-in via --reuse.
+        if (!kwargs.reuse) {
             await startNewDoubaoChat(page);
         }
         const beforeTurns = await getDoubaoVisibleTurns(page);

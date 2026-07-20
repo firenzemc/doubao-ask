@@ -46,6 +46,8 @@ MCP 客户端配置示例：
 - `opencli doubao ask-cited`（自定义 adapter，`opencli-clis/doubao/ask-cited.js`）：
   开新对话 → 发问 → DOM 轮询等回答完成 → 拦截 `window.open` 后逐一点击行内引用标记
   （`span.container-DEV3jt`）收集真实来源 URL。
+- **语义：每次提问都是一个新对话（无状态，业务场景要求）**。对话复用（`--reuse`）
+  保留给未来用户明确指定的场景，默认不启用。
 - 豆包回答里的引用**不是** `<a href>`，而是站点名 span，点击时经 JS 调 `window.open` 跳转，
   所以用 stub 收集；无引用的回答返回空数组。
 - ⚠️ `container-DEV3jt` 是豆包前端的哈希 CSS 类名。若引用提取突然变空，重新侦察该类名

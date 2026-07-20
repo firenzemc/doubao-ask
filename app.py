@@ -191,7 +191,7 @@ SETUP_CLI_ALLOW = {
     ("browser", "setup", "open"), ("browser", "setup", "click"),
     ("browser", "setup", "type"), ("browser", "setup", "scroll"),
     ("browser", "setup", "wait"), ("browser", "setup", "state"),
-    ("browser", "setup", "screenshot"),
+    ("browser", "setup", "screenshot"), ("browser", "setup", "tab"),
 }
 
 

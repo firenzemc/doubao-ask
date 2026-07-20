@@ -30,6 +30,7 @@ export const solveSliderCommand = cli({
         if (!frame) {
             return [{ Status: 'NoChallenge', Detail: 'no captcha iframe found on the page' }];
         }
+        const frameInfo = `frame ${Math.round(frame.w)}x${Math.round(frame.h)} @ (${Math.round(frame.x)},${Math.round(frame.y)})`;
         const fromX = Math.round(frame.x + kwargs['handle-x']);
         const fromY = Math.round(frame.y + frame.h * kwargs['handle-y-ratio']);
         const dist = kwargs.distance > 0 ? kwargs.distance : Math.round(frame.w * 0.72);
@@ -55,9 +56,9 @@ export const solveSliderCommand = cli({
         const still = await page.evaluate(findChallengeScript);
         return [{
                 Status: still ? 'StillBlocked' : 'MaybeSolved',
-                Detail: still
+                Detail: `${frameInfo}; dragged (${fromX},${fromY}) -> (${toX},${toY}); ` + (still
                     ? `challenge iframe still present (${still.src})`
-                    : 'challenge iframe gone — retry the ask now',
+                    : 'challenge iframe gone — retry the ask now'),
             }];
     },
 });

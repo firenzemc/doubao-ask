@@ -14,12 +14,17 @@ const extractCitationsScript = `(async () => {
   for (const s of spans) {
     const name = (s.textContent || '').trim();
     const before = opened.length;
+    // Humanize the clicks: random point inside the element (never dead
+    // center) and a random 1–3s pause between citations — Linux/datacenter
+    // browsers are already high-risk, bursts of identical clicks make it worse.
+    const r = s.getBoundingClientRect();
+    const x = r.left + r.width * (0.2 + Math.random() * 0.6);
+    const y = r.top + r.height * (0.2 + Math.random() * 0.6);
     for (const t of ['pointerdown', 'mousedown', 'mouseup']) {
-      s.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
+      s.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y }));
     }
     s.click();
-    // Pace the clicks: a burst of synthetic clicks looks bot-like to Doubao.
-    await new Promise((r) => setTimeout(r, 900));
+    await new Promise((res) => setTimeout(res, 1000 + Math.random() * 2000));
     const url = opened.length > before ? opened[opened.length - 1] : '';
     if (url) results.push({ name, url });
   }

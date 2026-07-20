@@ -11,6 +11,12 @@ PORT="${PORT:-8080}"
 
 mkdir -p "$PROFILE_DIR"
 
+# Stale singleton locks survive in the persisted volume whenever a previous
+# container didn't shut down cleanly — and Chromium refuses to start at all
+# ("profile in use ... on another computer", since the hostname changed).
+# Exactly one chromium ever uses this profile, so dropping the locks is safe.
+rm -f "$PROFILE_DIR/SingletonLock" "$PROFILE_DIR/SingletonSocket" "$PROFILE_DIR/SingletonCookie"
+
 (
   while true; do
     Xvfb :99 -screen 0 1440x900x24 2>&1 | sed 's/^/[xvfb] /'

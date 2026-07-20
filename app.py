@@ -16,6 +16,7 @@ import time
 
 from fastapi import FastAPI, HTTPException, Response
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, Field
 
 OPENCLI = shutil.which("opencli") or "opencli"
@@ -31,7 +32,14 @@ _last_ask_started = 0.0
 # Mounted at "/" with streamable_http_path="/mcp" so the endpoint answers at
 # exactly /mcp (a sub-path mount would 307-redirect /mcp → /mcp/ and some
 # MCP clients drop POST bodies on redirects).
-mcp = FastMCP("doubao-ask", streamable_http_path="/mcp", stateless_http=True)
+# DNS-rebinding protection is off: the service is reachable only on the
+# tailnet, and its Host header is the node's tailnet IP (rejected by default).
+mcp = FastMCP(
+    "doubao-ask",
+    streamable_http_path="/mcp",
+    stateless_http=True,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 mcp_app = mcp.streamable_http_app()
 
 
